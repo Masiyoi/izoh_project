@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "301743914382",
+    "project_id": "unic-connect",
+    "storage_bucket": "unic-connect.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:301743914382:android:ee10882056d6a24a78f8df",
+        "android_client_info": {
+          "package_name": "com.example.unic_connect"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "301743914382-sdq21p5pckifqt4f6neiva6u1f65hdl3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBAxT-XKDPf0bSL5iqyUcghI55WUfIBNUI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "301743914382-sdq21p5pckifqt4f6neiva6u1f65hdl3.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "301743914382-n6q5gn41is6p8no8mv1s3kg0ao2bc48n.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.unicConnect"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
