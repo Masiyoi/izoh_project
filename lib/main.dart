@@ -67,7 +67,7 @@ class UnicConnectApp extends StatelessWidget {
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     return MaterialApp(
-      title: 'Unic Connects',
+      title: 'Unic Connect',
       debugShowCheckedModeBanner: false,
       themeMode: themeProvider.themeMode,
       theme: ThemeData(
