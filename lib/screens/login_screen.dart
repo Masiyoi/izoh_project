@@ -57,6 +57,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
+      if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/home');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(

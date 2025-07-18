@@ -24,10 +24,10 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   String? _profileImageUrl;
   String _userBio = '';
   String _displayName = '';
-  String _email = '';
   int _postsCount = 0;
   int _followersCount = 0;
   int _followingCount = 0;
+  String _email = '';
   bool _isOwnProfile = true;
   bool _isFollowing = false;
   bool _isEditingBio = false;
@@ -103,7 +103,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
         _isFollowing = followDoc.exists;
       });
     } catch (e) {
-      print('Error checking follow status: $e');
+        debugPrint('Error checking follow status: $e');
     }
   }
 

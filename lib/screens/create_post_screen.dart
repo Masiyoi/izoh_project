@@ -69,6 +69,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       timestamp: DateTime.now(), uid: '',
     );
 
+    if (!mounted) return;
     await Provider.of<PostService>(context, listen: false).createPost(post);
 
     setState(() => _isLoading = false);

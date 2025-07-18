@@ -12,12 +12,12 @@ Future<String?> uploadFileToSupabase(File file, String folder) async {
   final mimeType = lookupMimeType(file.path) ?? 'application/octet-stream';
 
   final bytes = await file.readAsBytes();
-  final response = await supabase.storage
-      .from('media')
-      .uploadBinary(filePath, bytes, fileOptions: FileOptions(contentType: mimeType));
-
-  if (response.error != null) {
-    print('Upload error: ${response.error!.message}');
+  try {
+    await supabase.storage
+        .from('media')
+        .uploadBinary(filePath, bytes, fileOptions: FileOptions(contentType: mimeType));
+  } catch (e) {
+    print('Upload error: $e');
     return null;
   }
 
@@ -25,6 +25,4 @@ Future<String?> uploadFileToSupabase(File file, String folder) async {
   return publicUrl;
 }
 
-extension on String {
-  Null get error => null;
-}
+// Removed unnecessary String extension that caused error handling to always be unreachable.

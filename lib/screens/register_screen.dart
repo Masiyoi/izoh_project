@@ -58,6 +58,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
         _passwordController.text.trim(),
         _nameController.text.trim(),
       );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Registration successful! Please verify your email.'),
@@ -93,7 +94,6 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Scaffold(

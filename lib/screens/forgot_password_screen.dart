@@ -48,6 +48,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
     setState(() => _isLoading = true);
     try {
       await _supabase.auth.resetPasswordForEmail(_emailController.text.trim());
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Password reset email sent! Check your inbox.'),
