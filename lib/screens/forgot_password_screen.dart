@@ -108,11 +108,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                           alignment: Alignment.centerLeft,
                           child: Container(
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.15),
+                              color: Colors.white.withValues(alpha: 0.15),
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
+                                  color: Colors.black.withValues(alpha: 0.1),
                                   blurRadius: 10,
                                   offset: const Offset(0, 5),
                                 ),
@@ -134,11 +134,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                           width: 120,
                           height: 120,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
+                            color: Colors.white.withValues(alpha: 0.15),
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
+                                color: Colors.black.withValues(alpha: 0.1),
                                 blurRadius: 20,
                                 offset: const Offset(0, 10),
                               ),
@@ -174,7 +174,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w600,
-                            color: Colors.white.withOpacity(0.9),
+                            color: Colors.white.withValues(alpha: 0.9),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -183,7 +183,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 16,
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withValues(alpha: 0.8),
                             fontWeight: FontWeight.w400,
                           ),
                         ),
@@ -194,11 +194,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                           constraints: const BoxConstraints(maxWidth: 400),
                           padding: const EdgeInsets.all(32),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.95),
+                            color: Colors.white.withValues(alpha: 0.95),
                             borderRadius: BorderRadius.circular(24),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.15),
+                                color: Colors.black.withValues(alpha: 0.15),
                                 blurRadius: 30,
                                 offset: const Offset(0, 15),
                               ),
@@ -237,7 +237,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                                     borderRadius: BorderRadius.circular(16),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: const Color(0xFF667eea).withOpacity(0.3),
+                                        color: const Color(0xFF667eea).withValues(alpha: 0.3),
                                         blurRadius: 15,
                                         offset: const Offset(0, 8),
                                       ),
@@ -314,7 +314,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Ticker
                             Text(
                               "Remember your password? ",
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
+                                color: Colors.white.withValues(alpha: 0.8),
                                 fontSize: 16,
                               ),
                             ),

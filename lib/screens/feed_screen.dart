@@ -68,7 +68,7 @@ class _FeedScreenState extends State<FeedScreen>
 
   Future<List<PostModel>> _fetchPosts() async {
     try {
-      return await Provider.of<PostService>(context, listen: false).Posts();
+      return await Provider.of<PostService>(context, listen: false).getPosts();
     } catch (e) {
       debugPrint('Error fetching posts: $e');
       rethrow;
@@ -186,7 +186,7 @@ class _FeedScreenState extends State<FeedScreen>
               icon: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(Icons.refresh, size: 20),
@@ -286,7 +286,7 @@ class _PostCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
-        if (post.mediaUrl != null) {
+        if (post.imageUrl != null) {
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -297,8 +297,8 @@ class _PostCard extends StatelessWidget {
                   child: Hero(
                     tag: post.id,
                     child: post.mediaType == 'video'
-                        ? VideoPlayerWidget(videoUrl: post.mediaUrl!)
-                        : Image.network(post.mediaUrl!, fit: BoxFit.contain),
+                        ? VideoPlayerWidget(videoUrl: post.imageUrl!)
+                        : Image.network(post.imageUrl!, fit: BoxFit.contain),
                   ),
                 ),
               ),
@@ -319,14 +319,14 @@ class _PostCard extends StatelessWidget {
                   padding: const EdgeInsets.all(20),
                   child: Text(post.caption!, style: theme.textTheme.bodyLarge),
                 ),
-              if (post.mediaUrl != null)
+              if (post.imageUrl != null)
                 Hero(
                   tag: post.id,
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                     child: post.mediaType == 'video'
-                        ? VideoPlayerWidget(videoUrl: post.mediaUrl!)
-                        : Image.network(post.mediaUrl!, fit: BoxFit.cover, width: double.infinity, height: 250),
+                        ? VideoPlayerWidget(videoUrl: post.imageUrl!)
+                        : Image.network(post.imageUrl!, fit: BoxFit.cover, width: double.infinity, height: 250),
                   ),
                 ),
               Padding(

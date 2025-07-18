@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as path;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart';
 
 Future<String?> uploadFileToSupabase(File file, String folder) async {
   final supabase = Supabase.instance.client;
@@ -17,7 +18,7 @@ Future<String?> uploadFileToSupabase(File file, String folder) async {
         .from('media')
         .uploadBinary(filePath, bytes, fileOptions: FileOptions(contentType: mimeType));
   } catch (e) {
-    print('Upload error: $e');
+    debugPrint('Upload error: $e');
     return null;
   }
 

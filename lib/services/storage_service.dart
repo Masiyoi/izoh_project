@@ -67,7 +67,7 @@ class StorageService {
 
     return publicUrl;
   } catch (e) {
-    print('Upload failed: $e');
+      debugPrint('Upload failed: $e');
     return null;
   }
 }

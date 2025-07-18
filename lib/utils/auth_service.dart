@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart';
 
 class AuthService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -12,7 +13,7 @@ class AuthService {
       if (response.user == null) {
         throw Exception('Supabase sign-in failed: No user returned');
       }
-      print('Supabase UID: ${response.user!.id}');
+        debugPrint('Supabase UID: ${response.user!.id}');
     } catch (e) {
       throw Exception('Error signing in: $e');
     }
@@ -33,7 +34,7 @@ class AuthService {
         'username': username,
         'created_at': DateTime.now().toIso8601String(),
       });
-      print('Supabase UID: ${user.id}');
+        debugPrint('Supabase UID: ${user.id}');
     } catch (e) {
       throw Exception('Error signing up: $e');
     }

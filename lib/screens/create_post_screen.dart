@@ -52,21 +52,24 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
     setState(() => _isLoading = true);
     final storageService = StorageService();
-    String? mediaUrl;
-
+    String? imageUrl;
+    String? mediaType;
     if (_mediaFile != null) {
       if (!kIsWeb) {
-        mediaUrl = await storageService.uploadFile(File(_mediaFile!.path), 'posts', onProgress: (progress) {  });
+        imageUrl = await storageService.uploadFile(File(_mediaFile!.path), 'posts', onProgress: (progress) {  });
       } else {
-        mediaUrl = await storageService.uploadXFile(_mediaFile!, 'posts');
+        imageUrl = await storageService.uploadXFile(_mediaFile!, 'posts');
       }
+      mediaType = _isVideo ? 'video' : 'image';
     }
 
     final post = PostModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       caption: _captionController.text.trim(),
-      mediaUrl: mediaUrl,
-      timestamp: DateTime.now(), uid: '',
+      imageUrl: imageUrl,
+      mediaType: mediaType,
+      timestamp: DateTime.now(),
+      uid: '',
     );
 
     if (!mounted) return;

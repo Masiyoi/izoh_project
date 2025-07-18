@@ -128,7 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                           children: [
                             Container(
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
+                                color: Colors.white.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: IconButton(
@@ -147,11 +147,11 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                           width: 120,
                           height: 120,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
+                            color: Colors.white.withValues(alpha: 0.15),
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
+                                color: Colors.black.withValues(alpha: 0.1),
                                 blurRadius: 20,
                                 offset: const Offset(0, 10),
                               ),
@@ -187,7 +187,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w600,
-                            color: Colors.white.withOpacity(0.9),
+                            color: Colors.white.withValues(alpha: 0.9),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -195,7 +195,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                           'Join us and unlock new possibilities',
                           style: TextStyle(
                             fontSize: 16,
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withValues(alpha: 0.8),
                             fontWeight: FontWeight.w400,
                           ),
                         ),
@@ -206,11 +206,11 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                           constraints: const BoxConstraints(maxWidth: 400),
                           padding: const EdgeInsets.all(32),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.95),
+                            color: Colors.white.withValues(alpha: 0.95),
                             borderRadius: BorderRadius.circular(24),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.15),
+                                color: Colors.black.withValues(alpha: 0.15),
                                 blurRadius: 30,
                                 offset: const Offset(0, 15),
                               ),
@@ -284,7 +284,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                                     borderRadius: BorderRadius.circular(16),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: const Color(0xFF667eea).withOpacity(0.3),
+                                        color: const Color(0xFF667eea).withValues(alpha: 0.3),
                                         blurRadius: 15,
                                         offset: const Offset(0, 8),
                                       ),
@@ -331,7 +331,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                             Text(
                               "Already have an account? ",
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
+                                color: Colors.white.withValues(alpha: 0.8),
                                 fontSize: 16,
                               ),
                             ),

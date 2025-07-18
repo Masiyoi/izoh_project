@@ -111,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.deepPurpleAccent.withOpacity(0.5),
+                                  color: Colors.deepPurpleAccent.withValues(alpha: 0.5),
                                   blurRadius: 15,
                                   spreadRadius: 2,
                                   offset: const Offset(0, 5),
@@ -147,7 +147,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             style: TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.w600,
-                              color: Colors.white.withOpacity(0.9),
+                              color: Colors.white.withValues(alpha: 0.9),
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -155,7 +155,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             'Sign in to continue your journey',
                             style: TextStyle(
                               fontSize: 16,
-                              color: Colors.white.withOpacity(0.8),
+                              color: Colors.white.withValues(alpha: 0.8),
                               fontWeight: FontWeight.w400,
                             ),
                           ),
@@ -166,15 +166,15 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             constraints: const BoxConstraints(maxWidth: 400),
                             padding: const EdgeInsets.all(30),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
+                              color: Colors.white.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(24),
                               border: Border.all(
-                                color: Colors.deepPurpleAccent.withOpacity(0.7),
+                                color: Colors.deepPurpleAccent.withValues(alpha: 0.7),
                                 width: 1.5,
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.deepPurpleAccent.withOpacity(0.3),
+                                  color: Colors.deepPurpleAccent.withValues(alpha: 0.3),
                                   blurRadius: 30,
                                   offset: const Offset(0, 15),
                                 ),
@@ -268,7 +268,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                               Text(
                                 "Don't have an account? ",
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.8),
+                                  color: Colors.white.withValues(alpha: 0.8),
                                   fontSize: 16,
                                 ),
                               ),
@@ -323,10 +323,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
+            color: Colors.white.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: Colors.deepPurpleAccent.withOpacity(0.6),
+              color: Colors.deepPurpleAccent.withValues(alpha: 0.6),
               width: 1.2,
             ),
           ),
@@ -337,8 +337,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-              prefixIcon: Icon(icon, color: Colors.white.withOpacity(0.7)),
+              hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+              prefixIcon: Icon(icon, color: Colors.white.withValues(alpha: 0.7)),
               suffixIcon: suffixIcon,
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),

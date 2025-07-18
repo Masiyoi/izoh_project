@@ -5,36 +5,39 @@ class PostService {
   final supabase = Supabase.instance.client;
 
   Future<void> createPost(PostModel post) async {
-    final response = await supabase.from('posts').insert({
-      'id': post.id,
-      'caption': post.caption,
-      'media_url': post.mediaUrl,
-      'media_type': post.mediaType,
-      'timestamp': post.timestamp.toIso8601String(),
-      'user_id': post.uid,
-    });
-
+    final response = await supabase.from('posts').insert(post.toMap());
     if (response == null) {
       throw Exception('Failed to insert post');
     }
   }
+  
+  Future<List<PostModel>> getPosts() async {
+    // TODO: Implement fetching posts from your backend or data source
+    // Example:
+    // return await fetchPostsFromApi();
+return [];
+}
 
   // ✅ This is the updated method you're missing
-  Future<List<PostModel>> Posts() async {
+  Future<List<PostModel>> posts() async {
     final response = await supabase
         .from('posts')
         .select()
-        .order('timestamp', ascending: false);
+        .order('timestamp', ascending: false)
+        .get();
 
-    if (response is PostgrestException) {
-      throw Exception('Error fetching posts: ${response.message}');
+    if (response.error != null) {
+      throw Exception('Error fetching posts: ${response.error!.message}');
     }
 
-    final List data = response;
+    final List data = response.data as List;
     return data.map((item) => PostModel.fromMap(item)).toList();
   }
 }
 
-extension on PostgrestList {
-  Null get message => null;
+extension on PostgrestTransformBuilder<PostgrestList> {
+  Future get() {
+    throw UnimplementedError('get() has not been implemented yet.');
+  }
 }
+

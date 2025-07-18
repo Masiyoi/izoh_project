@@ -27,12 +27,12 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   int _postsCount = 0;
   int _followersCount = 0;
   int _followingCount = 0;
-  String _email = '';
   bool _isOwnProfile = true;
   bool _isFollowing = false;
   bool _isEditingBio = false;
   // ignore: unused_field
   bool _isLoading = false;
+  String email = '';
 
   final TextEditingController _bioController = TextEditingController();
   late TabController _tabController;
@@ -74,7 +74,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
           _profileImageUrl = data['profileImageUrl'];
           _userBio = data['bio'] ?? 'No bio yet.';
           _displayName = data['displayName'] ?? 'Unknown User';
-          _email = data['email'] ?? '';
+          email = data['email'] ?? '';
           _postsCount = data['postsCount'] ?? 0;
           _followersCount = data['followersCount'] ?? 0;
           _followingCount = data['followingCount'] ?? 0;

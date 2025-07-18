@@ -110,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         setState(() => _selectedImage = file);
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error picking image: $e'), backgroundColor: Colors.red),
       );
@@ -164,8 +165,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final response = await supabase
           .from('posts')
           .select('''
-            id, user_id, caption, media_url, created_at, 
-            profiles!left(username),
+            *,
+            profiles(username),
             likes!left(user_id)
           ''')
           .order('created_at', ascending: false);
@@ -177,7 +178,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ...post,
             'like_count': likes.length,
             'is_liked': userId != null && likes.any((like) => like['user_id'] == userId),
-            'profiles': post['profiles'] ?? {'username': 'Unknown'},
           };
         }).toList();
       });
@@ -208,7 +208,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           'id': DateTime.now().millisecondsSinceEpoch.toString(),
         });
       }
-      await _loadPosts();
+      await _loadPosts(); // Always reload posts after like/unlike
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error updating like: $e'), backgroundColor: Colors.red),
@@ -287,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildPostCard(Map<String, dynamic> post, int index) {
-    final username = post['profiles']['username'] ?? 'User';
+    final username = post['profiles']?['username'] ?? 'User';
     final isLiked = post['is_liked'] ?? false;
     final likeCount = post['like_count'] ?? 0;
 
