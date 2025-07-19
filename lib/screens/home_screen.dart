@@ -11,6 +11,7 @@ import 'package:universal_io/io.dart';
 import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -135,8 +136,7 @@ Future<void> _pickImage() async {
     );
   }
 }
-
- Future<void> _uploadPost() async {
+Future<void> _uploadPost() async {
   final user = supabase.auth.currentUser;
   if (user == null || (_captionController.text.trim().isEmpty && _selectedImage == null)) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -147,6 +147,7 @@ Future<void> _pickImage() async {
 
   setState(() => _isPosting = true);
   String? imageUrl;
+  final uuid = const Uuid().v4(); // Generate a UUID client-side as a fallback
 
   try {
     if (_selectedImage != null) {
@@ -169,6 +170,7 @@ Future<void> _pickImage() async {
     }
 
     await supabase.from('posts').insert({
+      'id': uuid, // Explicitly provide an ID to avoid NULL
       'user_id': user.id,
       'caption': _captionController.text.trim().isEmpty ? null : _captionController.text.trim(),
       'media_url': imageUrl,
@@ -185,8 +187,17 @@ Future<void> _pickImage() async {
     if (e is PostgrestException) {
       if (e.code == '42501') {
         errorMessage = 'Permission denied. Check RLS policies.';
-      } else if (e.code == '42P01') {
-        errorMessage = 'Table or relationship not found.';
+      } else if (e.code == '23505') {
+        errorMessage = 'Duplicate ID detected. Retrying with new ID.';
+        // Retry with a new UUID if a duplicate key violation occurs
+        final newUuid = const Uuid().v4();
+        await supabase.from('posts').insert({
+          'id': newUuid,
+          'user_id': user.id,
+          'caption': _captionController.text.trim().isEmpty ? null : _captionController.text.trim(),
+          'media_url': imageUrl,
+          'created_at': DateTime.now().toIso8601String(),
+        });
       }
     }
     ScaffoldMessenger.of(context).showSnackBar(
