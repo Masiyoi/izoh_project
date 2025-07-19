@@ -11,7 +11,6 @@ import 'package:universal_io/io.dart';
 import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
-
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -82,63 +81,94 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         event: PostgresChangeEvent.insert,
         schema: 'public',
         table: 'posts',
-        callback: (payload) => _loadPosts(),
+        callback: (payload) {
+          print('Real-time update received for posts: $payload'); // Logging
+          _loadPosts();
+        },
       )
       ..onPostgresChanges(
         event: PostgresChangeEvent.insert,
         schema: 'public',
         table: 'likes',
-        callback: (payload) => _loadPosts(),
+        callback: (payload) {
+          print('Real-time update received for likes: $payload'); // Logging
+          _loadPosts();
+        },
       )
       ..onPostgresChanges(
         event: PostgresChangeEvent.delete,
         schema: 'public',
         table: 'likes',
-        callback: (payload) => _loadPosts(),
+        callback: (payload) {
+          print('Real-time update received for likes delete: $payload'); // Logging
+          _loadPosts();
+        },
       )
       ..subscribe();
   }
 
- Uint8List? _selectedImageBytes;
+  Uint8List? _selectedImageBytes;
 
-Future<void> _pickImage() async {
-  try {
-    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      if (kIsWeb) {
-        final bytes = await pickedFile.readAsBytes();
-        if (bytes.length > 5 * 1024 * 1024) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Image size must be less than 5MB'), backgroundColor: Colors.red),
-          );
-          return;
+  Future<void> _pickImage() async {
+    try {
+      final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (pickedFile != null) {
+        if (kIsWeb) {
+          final bytes = await pickedFile.readAsBytes();
+          if (bytes.length > 5 * 1024 * 1024) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image size must be less than 5MB'), backgroundColor: Colors.red),
+            );
+            return;
+          }
+          setState(() {
+            _selectedImage = File(pickedFile.name); // Placeholder for web
+            _selectedImageBytes = bytes;
+          });
+        } else {
+          final file = File(pickedFile.path);
+          final fileSize = await file.length();
+          if (fileSize > 5 * 1024 * 1024) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image size must be less than 5MB'), backgroundColor: Colors.red),
+            );
+            return;
+          }
+          setState(() => _selectedImage = file);
         }
-        setState(() {
-          _selectedImage = File(pickedFile.name); // Placeholder for web
-          _selectedImageBytes = bytes;
-        });
-      } else {
-        final file = File(pickedFile.path);
-        final fileSize = await file.length();
-        if (fileSize > 5 * 1024 * 1024) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Image size must be less than 5MB'), backgroundColor: Colors.red),
-          );
-          return;
-        }
-        setState(() => _selectedImage = file);
       }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking image: $e'), backgroundColor: Colors.red),
+      );
     }
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error picking image: $e'), backgroundColor: Colors.red),
-    );
   }
-}
 Future<void> _uploadPost() async {
   final user = supabase.auth.currentUser;
-  if (user == null || (_captionController.text.trim().isEmpty && _selectedImage == null)) {
+  if (user == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please log in to post'), backgroundColor: Colors.red),
+    );
+    return;
+  }
+
+  // Check if profile exists, create if not
+  final profileCheck = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+  if (profileCheck.isEmpty) {
+    await supabase.from('profiles').insert({
+      'id': user.id,
+      'username': 'User_' + user.id.toString().substring(0, 8),
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    print('Created new profile for user: ${user.id}');
+  }
+
+  if (_captionController.text.trim().isEmpty && _selectedImage == null) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Please enter a caption or select an image'), backgroundColor: Colors.red),
     );
@@ -147,11 +177,13 @@ Future<void> _uploadPost() async {
 
   setState(() => _isPosting = true);
   String? imageUrl;
-  final uuid = const Uuid().v4(); // Generate a UUID client-side as a fallback
+  final uuid = const Uuid().v4();
+  print('Attempting to insert post with ID: $uuid, user_id: ${user.id}, caption: ${_captionController.text.trim()}');
 
   try {
     if (_selectedImage != null) {
       final fileName = '${DateTime.now().millisecondsSinceEpoch}_${user.id}.jpg';
+      print('Uploading image with filename: $fileName');
       if (kIsWeb) {
         await supabase.storage.from('post-media').uploadBinary(
           fileName,
@@ -167,30 +199,29 @@ Future<void> _uploadPost() async {
         );
       }
       imageUrl = supabase.storage.from('post-media').getPublicUrl(fileName);
+      print('Image uploaded, URL: $imageUrl'); // Log the URL
     }
 
-    await supabase.from('posts').insert({
-      'id': uuid, // Explicitly provide an ID to avoid NULL
+    final postData = {
+      'id': uuid,
       'user_id': user.id,
       'caption': _captionController.text.trim().isEmpty ? null : _captionController.text.trim(),
       'media_url': imageUrl,
       'created_at': DateTime.now().toIso8601String(),
-    });
+    };
+    print('Inserting post data: $postData');
+    await supabase.from('posts').insert(postData);
 
-    _captionController.clear();
-    setState(() {
-      _selectedImage = null;
-      _selectedImageBytes = null;
-    });
+    // Refresh posts after successful insertion
+    await _loadPosts();
+    print('Post insertion completed, feed refreshed');
   } catch (e) {
     String errorMessage = 'Error posting: $e';
     if (e is PostgrestException) {
-      if (e.code == '42501') {
-        errorMessage = 'Permission denied. Check RLS policies.';
-      } else if (e.code == '23505') {
+      if (e.code == '23505') {
         errorMessage = 'Duplicate ID detected. Retrying with new ID.';
-        // Retry with a new UUID if a duplicate key violation occurs
         final newUuid = const Uuid().v4();
+        print('Retrying with new ID: $newUuid');
         await supabase.from('posts').insert({
           'id': newUuid,
           'user_id': user.id,
@@ -198,73 +229,79 @@ Future<void> _uploadPost() async {
           'media_url': imageUrl,
           'created_at': DateTime.now().toIso8601String(),
         });
+        await _loadPosts(); // Refresh after retry
+      } else {
+        errorMessage = 'Database error: ${e.message} (Code: ${e.code})';
       }
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
     );
+    print('Error details: $errorMessage');
   } finally {
     setState(() => _isPosting = false);
   }
 }
-Future<void> _loadPosts() async {
-  final userId = supabase.auth.currentUser?.id;
-  try {
-    final response = await supabase
-        .from('posts')
-        .select('''
-          *,
-          profiles(username),
-          likes!left(user_id)
-        ''')
-        .order('created_at', ascending: false);
-
-    setState(() {
-      _posts = response.map<Map<String, dynamic>>((post) {
-        final likes = post['likes'] as List<dynamic>? ?? [];
-        return {
-          ...post,
-          'like_count': likes.length,
-          'is_liked': userId != null && likes.any((like) => like['user_id'] == userId),
-        };
-      }).toList();
-    });
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error loading posts: $e'), backgroundColor: Colors.red),
-    );
-  }
-}
-
-final Uuid uuid = Uuid();
-
-Future<void> _toggleLike(String postId, bool isLiked) async {
-  final userId = supabase.auth.currentUser?.id;
-  if (userId == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please log in to like posts'), backgroundColor: Colors.red),
-    );
-    return;
-  }
-
-  try {
-    if (isLiked) {
-      await supabase.from('likes').delete().match({'post_id': postId, 'user_id': userId});
-    } else {
-      await supabase.from('likes').insert({
-        'post_id': postId,
-        'user_id': userId,
-        'id': uuid.v4(), // Use uuid package for unique IDs
+  Future<void> _loadPosts() async {
+    final userId = supabase.auth.currentUser?.id;
+    try {
+      final response = await supabase
+          .from('posts')
+          .select('''
+            *,
+            profiles(username),
+            likes!left(user_id)
+          ''')
+          .order('created_at', ascending: false);
+      print('Loaded posts: $response'); // Logging
+      setState(() {
+        _posts = response.map<Map<String, dynamic>>((post) {
+          final likes = post['likes'] as List<dynamic>? ?? [];
+          return {
+            ...post,
+            'like_count': likes.length,
+            'is_liked': userId != null && likes.any((like) => like['user_id'] == userId),
+          };
+        }).toList();
       });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading posts: $e'), backgroundColor: Colors.red),
+      );
+      print('Error loading posts: $e');
     }
-    await _loadPosts();
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error updating like: $e'), backgroundColor: Colors.red),
-    );
   }
-}
+
+  final Uuid uuid = Uuid();
+
+  Future<void> _toggleLike(String postId, bool isLiked) async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to like posts'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    try {
+      if (isLiked) {
+        await supabase.from('likes').delete().match({'post_id': postId, 'user_id': userId});
+      } else {
+        await supabase.from('likes').insert({
+          'post_id': postId,
+          'user_id': userId,
+          'id': uuid.v4(), // Use uuid package for unique IDs
+        });
+      }
+      await _loadPosts();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error updating like: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   Widget _buildCreatePostCard() {
     return Container(
       margin: const EdgeInsets.all(16),
@@ -302,7 +339,9 @@ Future<void> _toggleLike(String postId, bool isLiked) async {
           if (_selectedImage != null)
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.file(_selectedImage!, height: 180, fit: BoxFit.cover),
+              child: kIsWeb
+                  ? Image.memory(_selectedImageBytes!, height: 180, fit: BoxFit.cover)
+                  : Image.file(_selectedImage!, height: 180, fit: BoxFit.cover),
             ),
           const SizedBox(height: 10),
           Row(
@@ -335,73 +374,75 @@ Future<void> _toggleLike(String postId, bool isLiked) async {
     );
   }
 
-  Widget _buildPostCard(Map<String, dynamic> post, int index) {
-    final username = post['profiles']?['username'] ?? 'User';
-    final isLiked = post['is_liked'] ?? false;
-    final likeCount = post['like_count'] ?? 0;
+ Widget _buildPostCard(Map<String, dynamic> post, int index) {
+  final username = post['profiles']?['username'] ?? 'User';
+  final isLiked = post['is_liked'] ?? false;
+  final likeCount = post['like_count'] ?? 0;
 
-    return Card(
-      color: const Color(0xFF11131B),
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const CircleAvatar(
-                  backgroundImage: AssetImage('assets/default_avatar.png'),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  username,
-                  style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (post['media_url'] != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.network(
-                  post['media_url'],
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.error, color: Colors.red),
-                ),
+  return Card(
+    color: const Color(0xFF11131B),
+    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const CircleAvatar(
+                backgroundImage: AssetImage('assets/default_avatar.png'),
               ),
-            const SizedBox(height: 10),
-            Text(
-              post['caption'] ?? '',
-              style: const TextStyle(color: Colors.white),
+              const SizedBox(width: 10),
+              Text(
+                username,
+                style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (post['media_url'] != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.network(
+                post['media_url'],
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  print('Image load error for URL ${post['media_url']}: $error');
+                  return const Icon(Icons.error, color: Colors.red);
+                },
+              ),
             ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                IconButton(
-                  icon: Icon(
-                    isLiked ? Icons.favorite : Icons.favorite_border,
-                    color: isLiked ? Colors.red : Colors.deepPurple,
-                  ),
-                  onPressed: () => _toggleLike(post['id'], isLiked),
+          const SizedBox(height: 10),
+          Text(
+            post['caption'] ?? '',
+            style: const TextStyle(color: Colors.white),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              IconButton(
+                icon: Icon(
+                  isLiked ? Icons.favorite : Icons.favorite_border,
+                  color: isLiked ? Colors.red : Colors.deepPurple,
                 ),
-                Text('$likeCount', style: const TextStyle(color: Colors.white54)),
-                const SizedBox(width: 20),
-                IconButton(
-                  icon: const Icon(Icons.comment_outlined, color: Colors.white54),
-                  onPressed: () {
-                    // TODO: open comments section or modal
-                  },
-                ),
-                const Text('0', style: TextStyle(color: Colors.white54)),
-              ],
-            ),
-          ],
-        ),
+                onPressed: () => _toggleLike(post['id'], isLiked),
+              ),
+              Text('$likeCount', style: const TextStyle(color: Colors.white54)),
+              const SizedBox(width: 20),
+              IconButton(
+                icon: const Icon(Icons.comment_outlined, color: Colors.white54),
+                onPressed: () {
+                  // TODO: open comments section or modal
+                },
+              ),
+              const Text('0', style: TextStyle(color: Colors.white54)),
+            ],
+          ),
+        ],
       ),
-    );
-  }
-
+    ),
+  );
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
