@@ -49,6 +49,7 @@ dependencies:
   lucide_icons:
   supabase_flutter: ^2.9.1
   firebase_auth: 
+  universal_io: ^2.2.2
 
 dev_dependencies:
   flutter_test:

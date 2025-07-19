@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:unic_connect/screens/communities_screen.dart';
 import 'package:unic_connect/screens/messages_screen.dart';
@@ -7,6 +6,10 @@ import 'package:unic_connect/screens/profile_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:unic_connect/utils/supabase_client.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:universal_io/io.dart';
+import 'dart:typed_data';
+import 'package:uuid/uuid.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -95,10 +98,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ..subscribe();
   }
 
-  Future<void> _pickImage() async {
-    try {
-      final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-      if (pickedFile != null) {
+ Uint8List? _selectedImageBytes;
+
+Future<void> _pickImage() async {
+  try {
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      if (kIsWeb) {
+        final bytes = await pickedFile.readAsBytes();
+        if (bytes.length > 5 * 1024 * 1024) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Image size must be less than 5MB'), backgroundColor: Colors.red),
+          );
+          return;
+        }
+        setState(() {
+          _selectedImage = File(pickedFile.name); // Placeholder for web
+          _selectedImageBytes = bytes;
+        });
+      } else {
         final file = File(pickedFile.path);
         final fileSize = await file.length();
         if (fileSize > 5 * 1024 * 1024) {
@@ -109,113 +127,133 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
         setState(() => _selectedImage = file);
       }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking image: $e'), backgroundColor: Colors.red),
-      );
     }
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error picking image: $e'), backgroundColor: Colors.red),
+    );
+  }
+}
+
+ Future<void> _uploadPost() async {
+  final user = supabase.auth.currentUser;
+  if (user == null || (_captionController.text.trim().isEmpty && _selectedImage == null)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please enter a caption or select an image'), backgroundColor: Colors.red),
+    );
+    return;
   }
 
-  Future<void> _uploadPost() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null || _captionController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a caption'), backgroundColor: Colors.red),
-      );
-      return;
-    }
+  setState(() => _isPosting = true);
+  String? imageUrl;
 
-    setState(() => _isPosting = true);
-    String? imageUrl;
-
-    try {
-      if (_selectedImage != null) {
-        final fileName = '${DateTime.now().millisecondsSinceEpoch}_${user.uid}.jpg';
+  try {
+    if (_selectedImage != null) {
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${user.id}.jpg';
+      if (kIsWeb) {
+        await supabase.storage.from('post-media').uploadBinary(
+          fileName,
+          _selectedImageBytes!,
+          fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
+        );
+      } else {
         final bytes = await _selectedImage!.readAsBytes();
         await supabase.storage.from('post-media').uploadBinary(
           fileName,
           bytes,
           fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
         );
-        imageUrl = supabase.storage.from('post-media').getPublicUrl(fileName);
       }
-
-      await supabase.from('posts').insert({
-        'user_id': user.uid,
-        'caption': _captionController.text.trim(),
-        'media_url': imageUrl,
-        'created_at': DateTime.now().toIso8601String(),
-      });
-
-      _captionController.clear();
-      setState(() => _selectedImage = null);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error posting: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
-      setState(() => _isPosting = false);
-    }
-  }
-
-  Future<void> _loadPosts() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    try {
-      final response = await supabase
-          .from('posts')
-          .select('''
-            *,
-            profiles(username),
-            likes!left(user_id)
-          ''')
-          .order('created_at', ascending: false);
-
-      setState(() {
-        _posts = response.map<Map<String, dynamic>>((post) {
-          final likes = post['likes'] as List<dynamic>? ?? [];
-          return {
-            ...post,
-            'like_count': likes.length,
-            'is_liked': userId != null && likes.any((like) => like['user_id'] == userId),
-          };
-        }).toList();
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading posts: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  Future<void> _toggleLike(String postId, bool isLiked) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to like posts'), backgroundColor: Colors.red),
-      );
-      return;
+      imageUrl = supabase.storage.from('post-media').getPublicUrl(fileName);
     }
 
-    try {
-      if (isLiked) {
-        await supabase.from('likes').delete().match({'post_id': postId, 'user_id': userId});
-      } else {
-        await supabase.from('likes').insert({
-          'post_id': postId,
-          'user_id': userId,
-          'id': DateTime.now().millisecondsSinceEpoch.toString(),
-        });
+    await supabase.from('posts').insert({
+      'user_id': user.id,
+      'caption': _captionController.text.trim().isEmpty ? null : _captionController.text.trim(),
+      'media_url': imageUrl,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+
+    _captionController.clear();
+    setState(() {
+      _selectedImage = null;
+      _selectedImageBytes = null;
+    });
+  } catch (e) {
+    String errorMessage = 'Error posting: $e';
+    if (e is PostgrestException) {
+      if (e.code == '42501') {
+        errorMessage = 'Permission denied. Check RLS policies.';
+      } else if (e.code == '42P01') {
+        errorMessage = 'Table or relationship not found.';
       }
-      await _loadPosts(); // Always reload posts after like/unlike
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating like: $e'), backgroundColor: Colors.red),
-      );
     }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+    );
+  } finally {
+    setState(() => _isPosting = false);
+  }
+}
+Future<void> _loadPosts() async {
+  final userId = supabase.auth.currentUser?.id;
+  try {
+    final response = await supabase
+        .from('posts')
+        .select('''
+          *,
+          profiles(username),
+          likes!left(user_id)
+        ''')
+        .order('created_at', ascending: false);
+
+    setState(() {
+      _posts = response.map<Map<String, dynamic>>((post) {
+        final likes = post['likes'] as List<dynamic>? ?? [];
+        return {
+          ...post,
+          'like_count': likes.length,
+          'is_liked': userId != null && likes.any((like) => like['user_id'] == userId),
+        };
+      }).toList();
+    });
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error loading posts: $e'), backgroundColor: Colors.red),
+    );
+  }
+}
+
+final Uuid uuid = Uuid();
+
+Future<void> _toggleLike(String postId, bool isLiked) async {
+  final userId = supabase.auth.currentUser?.id;
+  if (userId == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please log in to like posts'), backgroundColor: Colors.red),
+    );
+    return;
   }
 
+  try {
+    if (isLiked) {
+      await supabase.from('likes').delete().match({'post_id': postId, 'user_id': userId});
+    } else {
+      await supabase.from('likes').insert({
+        'post_id': postId,
+        'user_id': userId,
+        'id': uuid.v4(), // Use uuid package for unique IDs
+      });
+    }
+    await _loadPosts();
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error updating like: $e'), backgroundColor: Colors.red),
+    );
+  }
+}
   Widget _buildCreatePostCard() {
     return Container(
       margin: const EdgeInsets.all(16),
