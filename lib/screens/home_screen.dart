@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:unic_connect/screens/comments_screen.dart';
 import 'package:unic_connect/screens/communities_screen.dart';
 import 'package:unic_connect/screens/messages_screen.dart';
 import 'package:unic_connect/screens/profile_screen.dart';
@@ -374,7 +375,7 @@ Future<void> _uploadPost() async {
     );
   }
 
- Widget _buildPostCard(Map<String, dynamic> post, int index) {
+Widget _buildPostCard(Map<String, dynamic> post, int index) {
   final username = post['profiles']?['username'] ?? 'User';
   final isLiked = post['is_liked'] ?? false;
   final likeCount = post['like_count'] ?? 0;
@@ -432,10 +433,15 @@ Future<void> _uploadPost() async {
               IconButton(
                 icon: const Icon(Icons.comment_outlined, color: Colors.white54),
                 onPressed: () {
-                  // TODO: open comments section or modal
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => CommentsScreen(postId: post['id']),
+                    ),
+                  );
                 },
               ),
-              const Text('0', style: TextStyle(color: Colors.white54)),
+              const Text('0', style: TextStyle(color: Colors.white54)), // Update this dynamically later
             ],
           ),
         ],

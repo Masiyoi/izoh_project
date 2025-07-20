@@ -50,6 +50,7 @@ dependencies:
   supabase_flutter: ^2.9.1
   firebase_auth: 
   universal_io: ^2.2.2
+  realtime_client: ^2.5.1
 
 dev_dependencies:
   flutter_test:
