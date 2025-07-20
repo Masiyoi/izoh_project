@@ -162,7 +162,7 @@ Future<void> _uploadPost() async {
   if (profileCheck.isEmpty) {
     await supabase.from('profiles').insert({
       'id': user.id,
-      'username': 'User_' + user.id.toString().substring(0, 8),
+      'username': 'User_${user.id.toString().substring(0, 8)}',
       'created_at': DateTime.now().toIso8601String(),
     });
     print('Created new profile for user: ${user.id}');
