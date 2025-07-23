@@ -13,6 +13,7 @@ class CommentsScreen extends StatefulWidget {
 }
 
 class _CommentsScreenState extends State<CommentsScreen> {
+  final supabase = SupabaseClientUtil.client;
   final TextEditingController _commentController = TextEditingController();
   List<Map<String, dynamic>> _comments = [];
   bool _isLoading = true;
