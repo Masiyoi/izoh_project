@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
+// ignore: unused_import
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:unic_connect/providers/theme_provider.dart';
 import 'package:unic_connect/utils/supabase_client.dart';

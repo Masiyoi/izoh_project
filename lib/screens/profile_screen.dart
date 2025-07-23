@@ -29,6 +29,7 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   bool _isFollowing = false;
   bool _isEditingBio = false;
   bool _isLoading = false;
+  // ignore: unused_field
   String _email = '';
 
   final TextEditingController _bioController = TextEditingController();
