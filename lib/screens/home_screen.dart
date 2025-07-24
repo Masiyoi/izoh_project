@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:unic_connect/screens/comments_screen.dart';
 import 'package:unic_connect/screens/communities_screen.dart';
 import 'package:unic_connect/screens/messages_screen.dart';
@@ -116,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _setupRealtime() async {
-    _realtimeChannel = supabase.channel('public:posts-likes')
+    _realtimeChannel = supabase.channel('public:posts-likes-comments')
       ..onPostgresChanges(
         event: PostgresChangeEvent.insert,
         schema: 'public',
@@ -139,6 +138,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         table: 'likes',
         callback: (payload) {
           _updatePostLikes();
+        },
+      )
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'comments',
+        callback: (payload) {
+          _loadPosts();
+        },
+      )
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.delete,
+        schema: 'public',
+        table: 'comments',
+        callback: (payload) {
+          _loadPosts();
         },
       )
       ..subscribe();
@@ -271,34 +286,37 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _loadPosts() async {
-  final userId = supabase.auth.currentUser?.id;
-  try {
-    final response = await supabase
-        .from('posts')
-        .select('''
-          *,
-          profiles(username, profile_image_url),
-          likes!left(user_id)
-        ''')
-        .order('created_at', ascending: false);
-    
-    if (mounted) {
-      setState(() {
-        _posts = response.map<Map<String, dynamic>>((post) {
-          final likes = post['likes'] as List<dynamic>? ?? [];
-          return {
-            ...post,
-            'like_count': likes.length,
-            'is_liked': userId != null && likes.any((like) => like['user_id'] == userId),
-          };
-        }).toList();
-      });
+    final userId = supabase.auth.currentUser?.id;
+    try {
+      final response = await supabase
+          .from('posts')
+          .select('''
+            *,
+            profiles(username, profile_image_url, full_name),
+            likes!left(user_id),
+            comments!left(id)
+          ''')
+          .order('created_at', ascending: false);
+      
+      if (mounted) {
+        setState(() {
+          _posts = response.map<Map<String, dynamic>>((post) {
+            final likes = post['likes'] as List<dynamic>? ?? [];
+            final comments = post['comments'] as List<dynamic>? ?? [];
+            return {
+              ...post,
+              'like_count': likes.length,
+              'comment_count': comments.length,
+              'is_liked': userId != null && likes.any((like) => like['user_id'] == userId),
+            };
+          }).toList();
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('Error loading posts: $e', isError: true);
     }
-  } catch (e) {
-    if (!mounted) return;
-    _showSnackBar('Error loading posts: $e', isError: true);
   }
-}
 
   final Uuid uuid = Uuid();
 
@@ -339,6 +357,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       });
       _showSnackBar('Error updating like: $e', isError: true);
     }
+  }
+
+  void _navigateToComments(Map<String, dynamic> post) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CommentsScreen(
+          postId: post['id'],
+        ),
+      ),
+    ).then((_) {
+      // Refresh posts when returning from comments screen
+      _loadPosts();
+    });
   }
 
   Widget _buildCreatePostModal() {
@@ -535,187 +567,185 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
- Widget _buildPostCard(Map<String, dynamic> post, int index) {
-  final profile = post['profiles'];
-  final username = profile?['username'] ?? 'User';
-  final fullName = profile?['full_name'] ?? username;
-  final profilePictureUrl = profile?['profile_image_url'];
-  final isLiked = post['is_liked'] ?? false;
-  final likeCount = post['like_count'] ?? 0;
-  final timeAgo = _getTimeAgo(post['created_at']);
+  Widget _buildPostCard(Map<String, dynamic> post, int index) {
+    final profile = post['profiles'];
+    final username = profile?['username'] ?? 'User';
+    final fullName = profile?['full_name'] ?? username;
+    final profilePictureUrl = profile?['profile_image_url'];
+    final isLiked = post['is_liked'] ?? false;
+    final likeCount = post['like_count'] ?? 0;
+    final commentCount = post['comment_count'] ?? 0;
+    final timeAgo = _getTimeAgo(post['created_at']);
 
-  return Container(
-    decoration: BoxDecoration(
-      border: Border(
-        bottom: BorderSide(color: Colors.grey.shade900, width: 0.5),
-      ),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Updated avatar with profile picture
-          _buildProfileAvatar(profilePictureUrl, username),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      fullName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '@$username',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      timeAgo,
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-                if (post['caption'] != null && post['caption'].isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    post['caption'],
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-                if (post['media_url'] != null) ...[
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.network(
-                      post['media_url'],
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          height: 200,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade800,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Center(
-                            child: Icon(Icons.error, color: Colors.grey),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _buildActionButton(
-                      icon: Icons.chat_bubble_outline,
-                      count: '0',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => CommentsScreen(postId: post['id']),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(width: 32),
-                    _buildActionButton(
-                      icon: Icons.repeat_rounded,
-                      count: '0',
-                      onTap: () {},
-                    ),
-                    const SizedBox(width: 32),
-                    _buildActionButton(
-                      icon: isLiked ? Icons.favorite : Icons.favorite_border,
-                      count: likeCount.toString(),
-                      color: isLiked ? Colors.red : null,
-                      onTap: () => _toggleLike(post['id'], isLiked),
-                    ),
-                    const SizedBox(width: 32),
-                    _buildActionButton(
-                      icon: Icons.share_outlined,
-                      count: '',
-                      onTap: () {},
-                    ),
-                  ],
-                ),
-              ],
-            ),
+    return GestureDetector(
+      onTap: () => _navigateToComments(post),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: Colors.grey.shade900, width: 0.5),
           ),
-        ],
-      ),
-    ),
-  );
-}
-
-// 3. Add this new method to build profile avatars
-Widget _buildProfileAvatar(String? profilePictureUrl, String username) {
-  if (profilePictureUrl != null && profilePictureUrl.isNotEmpty) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-      ),
-      child: ClipOval(
-        child: Image.network(
-          profilePictureUrl,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            return _buildFallbackAvatar(username);
-          },
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            return _buildFallbackAvatar(username);
-          },
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Updated avatar with profile picture
+              _buildProfileAvatar(profilePictureUrl, username),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          fullName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '@$username',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          timeAgo,
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (post['caption'] != null && post['caption'].isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        post['caption'],
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                    if (post['media_url'] != null) ...[
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          post['media_url'],
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              height: 200,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade800,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Center(
+                                child: Icon(Icons.error, color: Colors.grey),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        _buildActionButton(
+                          icon: Icons.chat_bubble_outline,
+                          count: commentCount.toString(),
+                          onTap: () => _navigateToComments(post),
+                        ),
+                        const SizedBox(width: 32),
+                        _buildActionButton(
+                          icon: Icons.repeat_rounded,
+                          count: '0',
+                          onTap: () {},
+                        ),
+                        const SizedBox(width: 32),
+                        _buildActionButton(
+                          icon: isLiked ? Icons.favorite : Icons.favorite_border,
+                          count: likeCount.toString(),
+                          color: isLiked ? Colors.red : null,
+                          onTap: () => _toggleLike(post['id'], isLiked),
+                        ),
+                        const SizedBox(width: 32),
+                        _buildActionButton(
+                          icon: Icons.share_outlined,
+                          count: '',
+                          onTap: () {},
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
-  } else {
-    return _buildFallbackAvatar(username);
   }
-}
-Widget _buildFallbackAvatar(String username) {
-  return Container(
-    width: 40,
-    height: 40,
-    decoration: BoxDecoration(
-      color: Colors.deepPurple.shade300,
-      shape: BoxShape.circle,
-    ),
-    child: Center(
-      child: Text(
-        username.isNotEmpty ? username[0].toUpperCase() : 'U',
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 18,
+
+  // 3. Add this new method to build profile avatars
+  Widget _buildProfileAvatar(String? profilePictureUrl, String username) {
+    if (profilePictureUrl != null && profilePictureUrl.isNotEmpty) {
+      return Container(
+        width: 40,
+        height: 40,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+        ),
+        child: ClipOval(
+          child: Image.network(
+            profilePictureUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return _buildFallbackAvatar(username);
+            },
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return _buildFallbackAvatar(username);
+            },
+          ),
+        ),
+      );
+    } else {
+      return _buildFallbackAvatar(username);
+    }
+  }
+
+  Widget _buildFallbackAvatar(String username) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.deepPurple.shade300,
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          username.isNotEmpty ? username[0].toUpperCase() : 'U',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildActionButton({
     required IconData icon,

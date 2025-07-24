@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:uuid/uuid.dart';
@@ -38,29 +37,33 @@ class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateM
   RealtimeChannel? _postsChannel;
   Timer? _debounce;
 
-  @override
-  void initState() {
-    super.initState();
-    _currentUser = supabase.auth.currentUser;
-    _tabController = TabController(length: 3, vsync: this);
-    _isOwnProfile = widget.userId == null || widget.userId == _currentUser?.id;
-    
-    if (_currentUser != null) {
-      _loadUserProfile();
-      if (!_isOwnProfile) {
-        _checkFollowingStatus();
-      }
-      _setupRealtime();
-    } else {
-      // Handle case where user is not authenticated
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/login');
+ @override
+void initState() {
+  super.initState();
+  _currentUser = supabase.auth.currentUser;
+  _tabController = TabController(length: 3, vsync: this);
+  _isOwnProfile = widget.userId == null || widget.userId == _currentUser?.id;
+  
+  if (_currentUser != null) {
+    // Add a small delay to ensure the auth state is fully settled
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadUserProfile();
+        if (!_isOwnProfile) {
+          _checkFollowingStatus();
         }
-      });
-    }
+        _setupRealtime();
+      }
+    });
+  } else {
+    // Handle case where user is not authenticated
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/login');
+      }
+    });
   }
-
+}
  // Add these new variables to your _ProfileScreenState class
 bool _isEditingUsername = false;
 final TextEditingController _usernameController = TextEditingController();
@@ -184,6 +187,106 @@ Future<void> _saveUsername() async {
 }
 
 // Update your _loadUserProfile method to initialize the username controller
+// Add this method to your _ProfileScreenState class
+Future<void> _createProfileIfNotExists() async {
+  if (_currentUser == null) return;
+
+  try {
+    // Check if profile exists
+    final existingProfile = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', _currentUser!.id)
+        .maybeSingle()
+        .timeout(const Duration(seconds: 10));
+
+    if (existingProfile == null) {
+      // Profile doesn't exist, create it
+      print('Creating new profile for user: ${_currentUser!.id}');
+      
+      // Generate a default username from email or use UUID
+      String defaultUsername = _generateDefaultUsername();
+      
+      // Ensure username is unique
+      defaultUsername = await _ensureUniqueUsername(defaultUsername);
+      
+      await supabase.from('profiles').insert({
+        'id': _currentUser!.id,
+        'username': defaultUsername,
+        'email': _currentUser!.email ?? '',
+        'bio': '',
+        'profile_image_url': null,
+        'posts_count': 0,
+        'followers_count': 0,
+        'following_count': 0,
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      }).timeout(const Duration(seconds: 15));
+      
+      print('Profile created successfully');
+    }
+  } catch (e) {
+    print('Error in _createProfileIfNotExists: $e');
+    // Don't throw here, let the app continue and show error in _loadUserProfile
+  }
+}
+
+// Helper method to generate default username
+String _generateDefaultUsername() {
+  if (_currentUser?.email != null && _currentUser!.email!.isNotEmpty) {
+    // Extract username from email (part before @)
+    String emailUsername = _currentUser!.email!.split('@')[0];
+    // Clean it up to match username requirements
+    emailUsername = emailUsername.replaceAll(RegExp(r'[^a-zA-Z0-9._]'), '');
+    
+    if (emailUsername.length >= 3 && emailUsername.length <= 30) {
+      return emailUsername;
+    }
+  }
+  
+  // Fallback: generate a random username
+  final uuid = const Uuid().v4().replaceAll('-', '').substring(0, 8);
+  return 'user_$uuid';
+}
+
+// Helper method to ensure username uniqueness
+Future<String> _ensureUniqueUsername(String baseUsername) async {
+  String username = baseUsername;
+  int counter = 1;
+  
+  while (true) {
+    try {
+      final existingUser = await supabase
+          .from('profiles')
+          .select('id')
+          .ilike('username', username)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 5));
+      
+      if (existingUser == null) {
+        // Username is available
+        return username;
+      }
+      
+      // Username taken, try with counter
+      username = '${baseUsername}_$counter';
+      counter++;
+      
+      // Safety check to prevent infinite loop
+      if (counter > 100) {
+        final uuid = const Uuid().v4().replaceAll('-', '').substring(0, 6);
+        return '${baseUsername}_$uuid';
+      }
+    } catch (e) {
+      print('Error checking username uniqueness: $e');
+      // Fallback with UUID
+      final uuid = const Uuid().v4().replaceAll('-', '').substring(0, 6);
+      return '${baseUsername}_$uuid';
+    }
+  }
+}
+
+// Update your _loadUserProfile method
 Future<void> _loadUserProfile() async {
   if (_currentUser == null || _isLoading) return;
 
@@ -191,6 +294,11 @@ Future<void> _loadUserProfile() async {
 
   try {
     String targetUserId = widget.userId ?? _currentUser!.id;
+    
+    // If it's the current user's own profile, ensure profile exists first
+    if (_isOwnProfile) {
+      await _createProfileIfNotExists();
+    }
     
     final response = await supabase
         .from('profiles')
@@ -209,15 +317,29 @@ Future<void> _loadUserProfile() async {
         _followersCount = (response['followers_count'] as int?) ?? 0;
         _followingCount = (response['following_count'] as int?) ?? 0;
         _bioController.text = _userBio;
-        _usernameController.text = _displayName; // Initialize username controller
+        _usernameController.text = _displayName;
       });
     } else if (mounted) {
-      _showErrorSnackBar('Profile not found');
+      // If profile still doesn't exist and it's not the current user's profile
+      if (!_isOwnProfile) {
+        _showErrorSnackBar('Profile not found');
+      } else {
+        // For own profile, try creating again with a different approach
+        _showErrorSnackBar('Failed to create profile. Please try again.');
+      }
     }
   } catch (e) {
     print('Error in _loadUserProfile: $e');
     if (mounted) {
-      _showErrorSnackBar('Failed to load profile');
+      if (_isOwnProfile && e.toString().contains('unique')) {
+        // Retry with different username
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) {
+          _loadUserProfile(); // Retry once
+        }
+      } else {
+        _showErrorSnackBar('Failed to load profile');
+      }
     }
   } finally {
     if (mounted) {
@@ -226,6 +348,7 @@ Future<void> _loadUserProfile() async {
   }
 }
 
+// Also update your initState method to handle the profile creation better
 // Update your _buildProfileHeader method to include username editing
 
   Future<void> _checkFollowingStatus() async {
@@ -571,68 +694,134 @@ String _getContentType(String extension) {
   }
 }
 
-  Future<void> _saveBio() async {
-    if (!_isOwnProfile || _isLoading) return;
+  // Updated _saveBio method with better error handling
+Future<void> _saveBio() async {
+  if (!_isOwnProfile || _isLoading) return;
 
-    final newBio = _bioController.text.trim();
-    if (newBio == _userBio) {
-      // No changes made
-      setState(() => _isEditingBio = false);
-      return;
-    }
+  final newBio = _bioController.text.trim();
+  if (newBio == _userBio) {
+    setState(() => _isEditingBio = false);
+    return;
+  }
 
-    setState(() => _isLoading = true);
+  setState(() => _isLoading = true);
 
-    try {
-      await supabase
-          .from('profiles')
-          .update({'bio': newBio})
-          .eq('id', _currentUser!.id)
-          .timeout(const Duration(seconds: 10));
+  try {
+    print('Attempting to update bio for user: ${_currentUser!.id}');
+    print('New bio: $newBio');
+    print('Current session: ${supabase.auth.currentSession?.accessToken != null ? "Valid" : "Invalid"}');
+    
+    // First, verify the profile exists
+    final profileCheck = await supabase
+        .from('profiles')
+        .select('id, username')
+        .eq('id', _currentUser!.id)
+        .maybeSingle()
+        .timeout(const Duration(seconds: 5));
+    
+    print('Profile check result: $profileCheck');
+    
+    if (profileCheck == null) {
+      print('Profile not found, creating one first...');
+      await _createProfileIfNotExists();
       
-      if (mounted) {
-        setState(() {
-          _userBio = newBio;
-          _isEditingBio = false;
-        });
-        
-        _showSuccessSnackBar('Bio updated successfully!');
+      // Wait a moment for the profile to be created
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    
+    // Now attempt the update with more detailed error catching
+    final updateResult = await supabase
+        .from('profiles')
+        .update({'bio': newBio, 'updated_at': DateTime.now().toIso8601String()})
+        .eq('id', _currentUser!.id)
+        .select()
+        .timeout(const Duration(seconds: 10));
+    
+    print('Update result: $updateResult');
+    
+    if (mounted) {
+      setState(() {
+        _userBio = newBio;
+        _isEditingBio = false;
+      });
+      
+      _showSuccessSnackBar('Bio updated successfully!');
+    }
+  } on PostgrestException catch (e) {
+    print('PostgrestException: ${e.message}');
+    print('Error details: ${e.details}');
+    print('Error hint: ${e.hint}');
+    print('Error code: ${e.code}');
+    
+    if (mounted) {
+      String errorMessage = 'Failed to update bio';
+      if (e.message.contains('RLS')) {
+        errorMessage = 'Permission denied. Please try signing in again.';
+      } else if (e.message.contains('not found')) {
+        errorMessage = 'Profile not found. Creating profile...';
+        // Try to create profile and retry
+        await _createProfileIfNotExists();
+        if (mounted) {
+          _saveBio(); // Retry once
+        }
+        return;
       }
-    } catch (e) {
-      print('Error updating bio: $e');
-      if (mounted) {
-        _showErrorSnackBar('Failed to update bio');
+      _showErrorSnackBar(errorMessage);
+    }
+  } catch (e) {
+    print('General error updating bio: $e');
+    print('Error type: ${e.runtimeType}');
+    
+    if (mounted) {
+      String errorMessage = 'Failed to update bio';
+      if (e.toString().contains('timeout')) {
+        errorMessage = 'Update timed out. Please check your connection.';
+      } else if (e.toString().contains('401') || e.toString().contains('403')) {
+        errorMessage = 'Session expired. Please sign in again.';
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      _showErrorSnackBar(errorMessage);
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
-
-  void _showErrorSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red.shade600,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+}
+ void _showErrorSnackBar(String message) {
+  if (!mounted) return;
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        message,
+        style: TextStyle(color: colorScheme.onError),
       ),
-    );
-  }
+      backgroundColor: colorScheme.error,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+  );
+}
 
-  void _showSuccessSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green.shade600,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+void _showSuccessSnackBar(String message) {
+  if (!mounted) return;
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        message,
+        style: TextStyle(color: colorScheme.onPrimary),
       ),
-    );
-  }
+      backgroundColor: Colors.green.shade600, // Keep green for success
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+  );
+}
 
   void _setupRealtime() {
     if (_currentUser == null) return;
@@ -699,102 +888,129 @@ String _getContentType(String extension) {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_isLoading,
-      onPopInvoked: (didPop) {
-        if (_isLoading && !didPop) {
-          _showErrorSnackBar('Please wait for the profile to load...');
-        }
-      },
-      child: Scaffold(
-        backgroundColor: Colors.grey.shade50,
-        body: _isLoading && _displayName.isEmpty
-            ? const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
-            : CustomScrollView(
-                slivers: [
-                  _buildSliverAppBar(),
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        _buildProfileHeader(),
-                        _buildActionButtons(),
-                        _buildTabBar(),
-                        SizedBox(
-                          height: 400,
-                          child: _buildTabContent(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+ // Updated build method to use theme colors
+@override
+Widget build(BuildContext context) {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  return PopScope(
+    canPop: !_isLoading,
+    onPopInvoked: (didPop) {
+      if (_isLoading && !didPop) {
+        _showErrorSnackBar('Please wait for the profile to load...');
+      }
+    },
+    child: Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: _isLoading && _displayName.isEmpty
+          ? Center(
+              child: CircularProgressIndicator(
+                color: colorScheme.primary,
               ),
+            )
+          : CustomScrollView(
+              slivers: [
+                _buildSliverAppBar(),
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      _buildProfileHeader(),
+                      _buildActionButtons(),
+                      _buildTabBar(),
+                    ],
+                  ),
+                ),
+                // Use SliverFillRemaining instead of SizedBox for better scrolling
+                SliverFillRemaining(
+                  child: _buildTabContent(),
+                ),
+              ],
+            ),
+    ),
+  );
+}
+// Updated SliverAppBar to use theme colors
+Widget _buildSliverAppBar() {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  return SliverAppBar(
+    expandedHeight: 100,
+    floating: true,
+    pinned: true,
+    backgroundColor: theme.appBarTheme.backgroundColor ?? colorScheme.surface,
+    elevation: theme.appBarTheme.elevation ?? 0,
+    leading: IconButton(
+      icon: Icon(
+        Icons.arrow_back_ios, 
+        color: theme.appBarTheme.iconTheme?.color ?? colorScheme.onSurface,
       ),
-    );
-  }
-
-  Widget _buildSliverAppBar() {
-    return SliverAppBar(
-      expandedHeight: 100,
-      floating: true,
-      pinned: true,
-      backgroundColor: Colors.white,
-      elevation: 0,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_ios, color: Colors.black87),
-        onPressed: () => Navigator.pop(context),
-      ),
-      actions: [
-        if (_isOwnProfile) ...[
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.black87),
-            onPressed: () {
-              // Navigate to settings
-            },
+      onPressed: () => Navigator.pop(context),
+    ),
+    actions: [
+      if (_isOwnProfile) ...[
+        IconButton(
+          icon: Icon(
+            Icons.settings, 
+            color: theme.appBarTheme.iconTheme?.color ?? colorScheme.onSurface,
           ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.black87),
-            onPressed: () async {
-              try {
-                await supabase.auth.signOut();
-                if (mounted) {
-                  Navigator.of(context).pushReplacementNamed('/login');
-                }
-              } catch (e) {
-                print('Error signing out: $e');
-                if (mounted) {
-                  _showErrorSnackBar('Failed to sign out');
-                }
+          onPressed: () {
+            // Navigate to settings
+          },
+        ),
+        IconButton(
+          icon: Icon(
+            Icons.logout, 
+            color: theme.appBarTheme.iconTheme?.color ?? colorScheme.onSurface,
+          ),
+          onPressed: () async {
+            try {
+              await supabase.auth.signOut();
+              if (mounted) {
+                Navigator.of(context).pushReplacementNamed('/login');
               }
-            },
+            } catch (e) {
+              print('Error signing out: $e');
+              if (mounted) {
+                _showErrorSnackBar('Failed to sign out');
+              }
+            }
+          },
+        ),
+      ] else ...[
+        IconButton(
+          icon: Icon(
+            Icons.more_vert, 
+            color: theme.appBarTheme.iconTheme?.color ?? colorScheme.onSurface,
           ),
-        ] else ...[
-          IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.black87),
-            onPressed: () {
-              // Show more options
-            },
-          ),
-        ],
+          onPressed: () {
+            // Show more options
+          },
+        ),
       ],
-      flexibleSpace: FlexibleSpaceBar(
-        centerTitle: true,
-        title: Text(
-          _isOwnProfile ? 'My Profile' : _displayName,
-          style: const TextStyle(
-            color: Colors.black87,
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
+    ],
+    flexibleSpace: FlexibleSpaceBar(
+      centerTitle: true,
+      title: Text(
+        _isOwnProfile ? 'My Profile' : _displayName,
+        style: theme.appBarTheme.titleTextStyle ?? TextStyle(
+          color: colorScheme.onSurface,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
-  Widget _buildProfileHeader() {
+// Updated profile header to use theme colors
+Widget _buildProfileHeader() {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
   return Container(
-    color: Colors.white,
+    color: theme.cardColor, // Use theme card color
     padding: const EdgeInsets.all(20),
     child: Column(
       children: [
@@ -806,18 +1022,22 @@ String _getContentType(String extension) {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.grey.shade300,
+                      color: colorScheme.outline, // Use theme outline color
                       width: 2,
                     ),
                   ),
                   child: CircleAvatar(
                     radius: 45,
-                    backgroundColor: Colors.grey.shade200,
+                    backgroundColor: colorScheme.surfaceContainerHighest, // Use theme surface variant
                     backgroundImage: _profileImageUrl != null
                         ? NetworkImage(_profileImageUrl!)
                         : null,
                     child: _profileImageUrl == null
-                        ? Icon(Icons.person, size: 50, color: Colors.grey.shade400)
+                        ? Icon(
+                            Icons.person, 
+                            size: 50, 
+                            color: colorScheme.onSurfaceVariant, // Use theme on-surface variant
+                          )
                         : null,
                   ),
                 ),
@@ -830,13 +1050,13 @@ String _getContentType(String extension) {
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: Colors.blue.shade600,
+                          color: colorScheme.primary, // Use theme primary color
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
+                          border: Border.all(color: theme.cardColor, width: 2),
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.camera_alt,
-                          color: Colors.white,
+                          color: colorScheme.onPrimary, // Use theme on-primary color
                           size: 16,
                         ),
                       ),
@@ -870,30 +1090,44 @@ String _getContentType(String extension) {
                   children: [
                     TextFormField(
                       controller: _usernameController,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: colorScheme.onSurface, // Use theme text color
+                      ),
                       decoration: InputDecoration(
                         labelText: 'Username',
+                        labelStyle: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                         hintText: 'Enter your username',
+                        hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant.withOpacity(0.6),
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
+                          borderSide: BorderSide(color: colorScheme.outline),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: colorScheme.primary),
                         ),
                         contentPadding: const EdgeInsets.all(12),
                         prefixText: '@',
+                        prefixStyle: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurface,
+                        ),
                       ),
                       onChanged: (value) {
-                        // Optional: Real-time validation feedback
                         if (_debounce?.isActive ?? false) _debounce!.cancel();
                         _debounce = Timer(const Duration(milliseconds: 500), () {
-                          // You can add real-time username validation here
+                          // Real-time username validation here if needed
                         });
                       },
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Username must be 3-30 characters, letters, numbers, dots, and underscores only',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -903,10 +1137,9 @@ String _getContentType(String extension) {
                   children: [
                     Text(
                       '@$_displayName',
-                      style: const TextStyle(
-                        fontSize: 16,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurface,
                         fontWeight: FontWeight.w600,
-                        color: Colors.black87,
                       ),
                     ),
                     if (_isOwnProfile) ...[
@@ -921,7 +1154,7 @@ String _getContentType(String extension) {
                         child: Icon(
                           Icons.edit,
                           size: 16,
-                          color: Colors.grey.shade600,
+                          color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -935,22 +1168,44 @@ String _getContentType(String extension) {
                   controller: _bioController,
                   maxLines: 3,
                   maxLength: 150,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurface,
+                  ),
                   decoration: InputDecoration(
                     hintText: 'Write your bio...',
+                    hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant.withOpacity(0.6),
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.grey.shade300),
+                      borderSide: BorderSide(color: colorScheme.outline),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: colorScheme.primary),
                     ),
                     contentPadding: const EdgeInsets.all(12),
+                    counterStyle: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 )
               else
-                Text(
-                  _userBio,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey.shade600,
-                    height: 1.3,
+                GestureDetector(
+                  onTap: _isOwnProfile && !_isLoading ? () => setState(() => _isEditingBio = true) : null,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      _userBio.isEmpty ? 'Add a bio...' : _userBio,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: _userBio.isEmpty 
+                          ? colorScheme.onSurfaceVariant.withOpacity(0.6)
+                          : colorScheme.onSurface,
+                        height: 1.3,
+                        fontStyle: _userBio.isEmpty ? FontStyle.italic : FontStyle.normal,
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -961,36 +1216,42 @@ String _getContentType(String extension) {
   );
 }
 
-  Widget _buildStatColumn(String label, int count) {
-    return GestureDetector(
-      onTap: () {
-        // Navigate to followers/following list
-      },
-      child: Column(
-        children: [
-          Text(
-            count.toString(),
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
+// Updated stat column to use theme colors
+Widget _buildStatColumn(String label, int count) {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  return GestureDetector(
+    onTap: () {
+      // Navigate to followers/following list
+    },
+    child: Column(
+      children: [
+        Text(
+          count.toString(),
+          style: theme.textTheme.headlineSmall?.copyWith(
+            color: colorScheme.onSurface,
+            fontWeight: FontWeight.bold,
           ),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
-            ),
+        ),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
-  Widget _buildActionButtons() {
+// Updated action buttons to use theme colors
+Widget _buildActionButtons() {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
   return Container(
-    color: Colors.white,
+    color: theme.cardColor,
     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
     child: Row(
       children: [
@@ -1010,19 +1271,21 @@ String _getContentType(String extension) {
                             }
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade600,
-                            foregroundColor: Colors.white,
+                            backgroundColor: colorScheme.primary,
+                            foregroundColor: colorScheme.onPrimary,
+                            disabledBackgroundColor: colorScheme.surfaceContainerHighest,
+                            disabledForegroundColor: colorScheme.onSurfaceVariant,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
                           child: _isLoading 
-                            ? const SizedBox(
+                            ? SizedBox(
                                 height: 16,
                                 width: 16,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                                  valueColor: AlwaysStoppedAnimation(colorScheme.onPrimary),
                                 ),
                               )
                             : const Text('Save'),
@@ -1040,8 +1303,9 @@ String _getContentType(String extension) {
                             });
                           },
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.grey.shade700,
-                            side: BorderSide(color: Colors.grey.shade300),
+                            foregroundColor: colorScheme.onSurface,
+                            disabledForegroundColor: colorScheme.onSurface.withOpacity(0.38),
+                            side: BorderSide(color: colorScheme.outline),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -1054,8 +1318,9 @@ String _getContentType(String extension) {
                 : OutlinedButton(
                     onPressed: _isLoading ? null : () => setState(() => _isEditingBio = true),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.black87,
-                      side: BorderSide(color: Colors.grey.shade300),
+                      foregroundColor: colorScheme.onSurface,
+                      disabledForegroundColor: colorScheme.onSurface.withOpacity(0.38),
+                      side: BorderSide(color: colorScheme.outline),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -1068,17 +1333,24 @@ String _getContentType(String extension) {
             child: ElevatedButton(
               onPressed: _isLoading ? null : _toggleFollow,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isFollowing ? Colors.grey.shade300 : Colors.blue.shade600,
-                foregroundColor: _isFollowing ? Colors.black87 : Colors.white,
+                backgroundColor: _isFollowing ? colorScheme.surfaceContainerHighest : colorScheme.primary,
+                foregroundColor: _isFollowing ? colorScheme.onSurfaceVariant : colorScheme.onPrimary,
+                disabledBackgroundColor: colorScheme.surfaceContainerHighest,
+                disabledForegroundColor: colorScheme.onSurfaceVariant,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
               child: _isLoading 
-                ? const SizedBox(
+                ? SizedBox(
                     height: 16,
                     width: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(
+                        _isFollowing ? colorScheme.onSurfaceVariant : colorScheme.onPrimary
+                      ),
+                    ),
                   )
                 : Text(_isFollowing ? 'Following' : 'Follow'),
             ),
@@ -1089,8 +1361,8 @@ String _getContentType(String extension) {
               // Send message
             },
             style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.black87,
-              side: BorderSide(color: Colors.grey.shade300),
+              foregroundColor: colorScheme.onSurface,
+              side: BorderSide(color: colorScheme.outline),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -1103,63 +1375,98 @@ String _getContentType(String extension) {
   );
 }
 
-
-  Widget _buildTabBar() {
-    return Container(
-      color: Colors.white,
-      child: TabBar(
-        controller: _tabController,
-        labelColor: Colors.black87,
-        unselectedLabelColor: Colors.grey.shade600,
-        indicatorColor: Colors.blue.shade600,
-        tabs: const [
-          Tab(icon: Icon(Icons.grid_on), text: 'Posts'),
-          Tab(icon: Icon(Icons.bookmark_border), text: 'Saved'),
-          Tab(icon: Icon(Icons.person_pin), text: 'Tagged'),
-        ],
-      ),
-    );
-  }
-
+// Updated tab bar to use theme colors
+Widget _buildTabBar() {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  return Container(
+    color: theme.cardColor,
+    child: TabBar(
+      controller: _tabController,
+      labelColor: colorScheme.primary,
+      unselectedLabelColor: colorScheme.onSurfaceVariant,
+      indicatorColor: colorScheme.primary,
+      tabs: const [
+        Tab(icon: Icon(Icons.grid_on), text: 'Posts'),
+        Tab(icon: Icon(Icons.bookmark_border), text: 'Saved'),
+        Tab(icon: Icon(Icons.person_pin), text: 'Tagged'),
+      ],
+    ),
+  );
+}
   Widget _buildTabContent() {
-    return TabBarView(
+  final theme = Theme.of(context);
+  
+  return Container(
+    color: theme.scaffoldBackgroundColor, // Use theme background instead of default
+    child: TabBarView(
       controller: _tabController,
       children: [
         _buildPostsGrid(),
         _buildSavedGrid(),
         _buildTaggedGrid(),
       ],
-    );
-  }
+    ),
+  );
+}
 
-  Widget _buildPostsGrid() {
-    return FutureBuilder<List<Map<String, dynamic>>>(
+// Updated _buildPostsGrid with theme-aware containers
+Widget _buildPostsGrid() {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  return Container(
+    color: theme.scaffoldBackgroundColor, // Use theme background
+    child: FutureBuilder<List<Map<String, dynamic>>>(
       future: _loadPosts(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(
+            child: CircularProgressIndicator(
+              color: colorScheme.primary,
+            ),
+          );
         }
         if (snapshot.hasError) {
-          return const Center(
+          return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.error_outline, size: 60, color: Colors.grey),
-                SizedBox(height: 10),
-                Text('Failed to load posts', style: TextStyle(color: Colors.grey)),
+                Icon(
+                  Icons.error_outline, 
+                  size: 60, 
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Failed to load posts', 
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           );
         }
         final posts = snapshot.data ?? [];
         if (posts.isEmpty) {
-          return const Center(
+          return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.photo, size: 60, color: Colors.grey),
-                SizedBox(height: 10),
-                Text('No posts yet', style: TextStyle(color: Colors.grey)),
+                Icon(
+                  Icons.photo, 
+                  size: 60, 
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'No posts yet', 
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           );
@@ -1180,27 +1487,61 @@ String _getContentType(String extension) {
               },
               child: Container(
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
+                  border: Border.all(color: colorScheme.outline.withOpacity(0.3)),
+                  borderRadius: BorderRadius.circular(4),
                 ),
                 child: post['media_url'] != null
-                    ? Image.network(
-                        post['media_url'],
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            const Center(child: Icon(Icons.broken_image, color: Colors.grey)),
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return const Center(child: CircularProgressIndicator());
-                        },
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: Image.network(
+                          post['media_url'],
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            color: colorScheme.surfaceContainerHighest,
+                            child: Center(
+                              child: Icon(
+                                Icons.broken_image, 
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Container(
+                              color: colorScheme.surfaceContainerHighest,
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  color: colorScheme.primary,
+                                  value: loadingProgress.expectedTotalBytes != null
+                                      ? loadingProgress.cumulativeBytesLoaded /
+                                          loadingProgress.expectedTotalBytes!
+                                      : null,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       )
-                    : const Center(child: Icon(Icons.image, color: Colors.grey)),
+                    : Container(
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.image, 
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
               ),
             );
           },
         );
       },
-    );
-  }
+    ),
+  );
+}
 
   Future<List<Map<String, dynamic>>> _loadPosts() async {
     try {
@@ -1219,29 +1560,60 @@ String _getContentType(String extension) {
     }
   }
 
-  Widget _buildSavedGrid() {
-    return const Center(
+ Widget _buildSavedGrid() {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  return Container(
+    color: theme.scaffoldBackgroundColor,
+    child: Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.bookmark_border, size: 60, color: Colors.grey),
-          SizedBox(height: 10),
-          Text('No saved posts yet', style: TextStyle(color: Colors.grey)),
+          Icon(
+            Icons.bookmark_border, 
+            size: 60, 
+            color: colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'No saved posts yet', 
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
-  Widget _buildTaggedGrid() {
-    return const Center(
+// Updated _buildTaggedGrid with theme colors
+Widget _buildTaggedGrid() {
+  final theme = Theme.of(context);
+  final colorScheme = theme.colorScheme;
+  
+  return Container(
+    color: theme.scaffoldBackgroundColor,
+    child: Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.person_pin_outlined, size: 60, color: Colors.grey),
-          SizedBox(height: 10),
-          Text('No tagged posts yet', style: TextStyle(color: Colors.grey)),
+          Icon(
+            Icons.person_pin_outlined, 
+            size: 60, 
+            color: colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'No tagged posts yet', 
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

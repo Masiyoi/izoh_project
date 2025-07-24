@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static final ThemeData darkTheme = ThemeData(
+  static ThemeData get darkTheme => ThemeData(
     scaffoldBackgroundColor: const Color(0xFF0A0E1A), // Home screen background
     primaryColor: Colors.blue,
     colorScheme: ColorScheme.dark(

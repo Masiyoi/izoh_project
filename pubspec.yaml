@@ -51,6 +51,7 @@ dependencies:
   firebase_auth: 
   universal_io: ^2.2.2
   realtime_client: ^2.5.1
+  file_picker: ^10.2.0
 
 dev_dependencies:
   flutter_test:

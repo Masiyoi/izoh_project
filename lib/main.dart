@@ -63,13 +63,7 @@ class UnicConnectApp extends StatelessWidget {
     return MaterialApp(
       title: 'Unic Connect',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.deepPurple,
-        scaffoldBackgroundColor: Colors.white,
-        brightness: Brightness.light,
-      ),
-      darkTheme: AppTheme.darkTheme, // Use AppTheme.darkTheme from theme.dart
-      themeMode: themeProvider.themeMode, // Controlled by ThemeProvider
+      theme: AppTheme.darkTheme,
       initialRoute: '/login',
       routes: {
         '/login': (context) => const LoginScreen(),

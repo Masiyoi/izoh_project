@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:unic_connect/utils/auth_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -10,7 +10,7 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  final AuthService _authService = AuthService();
+  final SupabaseClient _supabase = Supabase.instance.client;
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -52,33 +52,56 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
   Future<void> _registerUser() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
+    
     try {
-      await _authService.signUp(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
-        _nameController.text.trim(),
+      // Sign up with Supabase
+      final AuthResponse response = await _supabase.auth.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+        data: {
+          'full_name': _nameController.text.trim(),
+          'display_name': _nameController.text.trim()
+        },
       );
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Registration successful! Please verify your email.'),
-          backgroundColor: Colors.green.shade400,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-      Navigator.pop(context); // Navigate back to login
-    } catch (e) {
-      String message;
-      if (e.toString().contains('email-already-in-use') || e.toString().contains('Email already exists')) {
-        message = 'The email address is already in use.';
-      } else if (e.toString().contains('invalid-email')) {
-        message = 'The email address is not valid.';
-      } else if (e.toString().contains('weak-password') || e.toString().contains('Password should be at least 6 characters')) {
-        message = 'The password is too weak.';
-      } else {
-        message = 'Registration failed: $e';
+
+      if (response.user != null) {
+        // Check if email confirmation is required
+        // Since email confirmation is disabled, user is automatically signed in
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Registration successful! Welcome to UNIC CONNECT!'),
+            backgroundColor: Colors.green.shade400,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+        Navigator.pop(context); // Navigate back to login
       }
+    } on AuthException catch (e) {
+      String message;
+      switch (e.message.toLowerCase()) {
+        case 'user already registered':
+        case 'email address already in use':
+          message = 'The email address is already in use.';
+          break;
+        case 'invalid email':
+        case 'invalid email format':
+          message = 'The email address is not valid.';
+          break;
+        case 'password should be at least 6 characters':
+        case 'password too short':
+          message = 'The password must be at least 6 characters long.';
+          break;
+        case 'signup disabled':
+          message = 'Account registration is currently disabled.';
+          break;
+        default:
+          message = e.message;
+      }
+      
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
@@ -87,8 +110,20 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Registration failed: ${e.toString()}'),
+          backgroundColor: Colors.red.shade400,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
