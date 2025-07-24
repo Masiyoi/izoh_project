@@ -23,14 +23,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _selectedIndex = 0;
   late AnimationController _animationController;
   late AnimationController _fabAnimationController;
+  late AnimationController _searchAnimationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _fabScaleAnimation;
   late Animation<Offset> _slideAnimation;
+  late Animation<double> _searchScaleAnimation;
   File? _selectedImage;
   final TextEditingController _captionController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
   bool _isPosting = false;
   bool _showCreatePost = false;
+  bool _showSearch = false;
+  bool _isSearching = false;
   List<Map<String, dynamic>> _posts = [];
+  List<Map<String, dynamic>> _searchResults = [];
   RealtimeChannel? _realtimeChannel;
   final ScrollController _scrollController = ScrollController();
   bool _showFab = true;
@@ -67,6 +73,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
+    _searchAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
@@ -76,12 +86,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
     );
+    _searchScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _searchAnimationController, curve: Curves.elasticOut),
+    );
     
     _animationController.forward();
     _fabAnimationController.forward();
     _loadPosts();
     _setupRealtime();
     _setupScrollListener();
+    _setupSearchListener();
+  }
+
+  void _setupSearchListener() {
+    _searchController.addListener(() {
+      if (_searchController.text.isNotEmpty) {
+        _performSearch(_searchController.text);
+      } else {
+        setState(() {
+          _searchResults.clear();
+        });
+      }
+    });
   }
 
   void _setupScrollListener() {
@@ -97,8 +123,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     _captionController.dispose();
+    _searchController.dispose();
     _animationController.dispose();
     _fabAnimationController.dispose();
+    _searchAnimationController.dispose();
     _scrollController.dispose();
     _realtimeChannel?.unsubscribe();
     super.dispose();
@@ -115,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _setupRealtime() async {
-    _realtimeChannel = supabase.channel('public:posts-likes-comments')
+    _realtimeChannel = supabase.channel('public:posts-likes-comments-follows')
       ..onPostgresChanges(
         event: PostgresChangeEvent.insert,
         schema: 'public',
@@ -156,7 +184,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _loadPosts();
         },
       )
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'follows',
+        callback: (payload) {
+          _refreshSearchResults();
+        },
+      )
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.delete,
+        schema: 'public',
+        table: 'follows',
+        callback: (payload) {
+          _refreshSearchResults();
+        },
+      )
       ..subscribe();
+  }
+
+  Future<void> _refreshSearchResults() async {
+    if (_searchController.text.isNotEmpty) {
+      await _performSearch(_searchController.text);
+    }
   }
 
   Future<void> _updatePostLikes() async {
@@ -211,6 +261,109 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         margin: const EdgeInsets.all(16),
       ),
     );
+  }
+
+  Future<void> _performSearch(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() {
+        _searchResults.clear();
+      });
+      return;
+    }
+
+    setState(() => _isSearching = true);
+    
+    try {
+      final currentUserId = supabase.auth.currentUser?.id;
+      
+      final response = await supabase
+          .from('profiles')
+          .select('''
+            id,
+            username,
+            full_name,
+            profile_image_url,
+            avatar_url,
+            bio,
+            created_at,
+            followers:follows!followed_id(follower_id),
+            following:follows!follower_id(followed_id)
+          ''')
+          .ilike('username', '%$query%')
+          .neq('id', currentUserId ?? '') // Exclude current user
+          .limit(20);
+
+      if (mounted) {
+        setState(() {
+          _searchResults = response.map<Map<String, dynamic>>((user) {
+            final followers = user['followers'] as List<dynamic>? ?? [];
+            final following = user['following'] as List<dynamic>? ?? [];
+            final isFollowing = currentUserId != null && 
+                followers.any((follow) => follow['follower_id'] == currentUserId);
+            
+            return {
+              ...user,
+              'followers_count': followers.length,
+              'following_count': following.length,
+              'is_following': isFollowing,
+            };
+          }).toList();
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('Error searching users: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _isSearching = false);
+      }
+    }
+  }
+
+  Future<void> _toggleFollow(String userId, bool isFollowing) async {
+    final currentUserId = supabase.auth.currentUser?.id;
+    if (currentUserId == null) {
+      _showSnackBar('Please log in to follow users', isError: true);
+      return;
+    }
+
+    // Optimistic update
+    setState(() {
+      final userIndex = _searchResults.indexWhere((user) => user['id'] == userId);
+      if (userIndex != -1) {
+        _searchResults[userIndex]['is_following'] = !isFollowing;
+        _searchResults[userIndex]['followers_count'] += isFollowing ? -1 : 1;
+      }
+    });
+
+    try {
+      if (isFollowing) {
+        // Unfollow
+        await supabase.from('follows').delete().match({
+          'follower_id': currentUserId,
+          'followed_id': userId,
+        });
+      } else {
+        // Follow
+        await supabase.from('follows').insert({
+          'follower_id': currentUserId,
+          'followed_id': userId,
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      }
+      
+      _showSnackBar(isFollowing ? 'Unfollowed successfully' : 'Following now!');
+    } catch (e) {
+      // Revert optimistic update on error
+      setState(() {
+        final userIndex = _searchResults.indexWhere((user) => user['id'] == userId);
+        if (userIndex != -1) {
+          _searchResults[userIndex]['is_following'] = isFollowing;
+          _searchResults[userIndex]['followers_count'] += isFollowing ? 1 : -1;
+        }
+      });
+      _showSnackBar('Error updating follow status: $e', isError: true);
+    }
   }
 
   Future<void> _uploadPost() async {
@@ -371,6 +524,177 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       // Refresh posts when returning from comments screen
       _loadPosts();
     });
+  }
+
+  Widget _buildSearchModal() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      height: _showSearch ? MediaQuery.of(context).size.height * 0.8 : 0,
+      child: _showSearch ? Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1A1F2E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.grey.shade800)),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => setState(() {
+                      _showSearch = false;
+                      _searchController.clear();
+                      _searchResults.clear();
+                    }),
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      decoration: InputDecoration(
+                        hintText: "Search users...",
+                        hintStyle: TextStyle(color: Colors.grey.shade400),
+                        border: InputBorder.none,
+                        prefixIcon: Icon(Icons.search, color: Colors.grey.shade400),
+                      ),
+                      autofocus: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Search Results
+            Expanded(
+              child: _isSearching
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Colors.blue),
+                    )
+                  : _searchResults.isEmpty
+                      ? Center(
+                          child: Text(
+                            _searchController.text.isEmpty
+                                ? 'Search for users to follow'
+                                : 'No users found',
+                            style: TextStyle(
+                              color: Colors.grey.shade400,
+                              fontSize: 16,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: _searchResults.length,
+                          itemBuilder: (context, index) {
+                            return _buildUserCard(_searchResults[index]);
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ) : const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildUserCard(Map<String, dynamic> user) {
+    final username = user['username'] ?? 'User';
+    final fullName = user['full_name'] ?? username;
+    final bio = user['bio'] ?? '';
+    final profilePictureUrl = user['profile_image_url'] ?? user['avatar_url'];
+    final followersCount = user['followers_count'] ?? 0;
+    final followingCount = user['following_count'] ?? 0;
+    final isFollowing = user['is_following'] ?? false;
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade900, width: 0.5),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            _buildProfileAvatar(profilePictureUrl, username),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    fullName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  Text(
+                    '@$username',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (bio.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      bio,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        '$followingCount Following',
+                        style: TextStyle(
+                          color: Colors.grey.shade400,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Text(
+                        '$followersCount Followers',
+                        style: TextStyle(
+                          color: Colors.grey.shade400,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton(
+              onPressed: () => _toggleFollow(user['id'], isFollowing),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isFollowing ? Colors.grey.shade800 : Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: Text(
+                isFollowing ? 'Following' : 'Follow',
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildCreatePostModal() {
@@ -571,7 +895,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final profile = post['profiles'];
     final username = profile?['username'] ?? 'User';
     final fullName = profile?['full_name'] ?? username;
-    final profilePictureUrl = profile?['profile_image_url'];
+    final profilePictureUrl = profile?['profile_image_url'] ?? profile?['avatar_url'];
     final isLiked = post['is_liked'] ?? false;
     final likeCount = post['like_count'] ?? 0;
     final commentCount = post['comment_count'] ?? 0;
@@ -811,6 +1135,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
         ),
         centerTitle: false,
+        actions: [
+          IconButton(
+            onPressed: () {
+              setState(() => _showSearch = true);
+              _searchAnimationController.forward();
+            },
+            icon: const Icon(
+              Icons.search,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
       ) : null,
       body: SafeArea(
         child: Stack(
@@ -849,6 +1187,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     : _pages[_selectedIndex],
               ),
             ),
+            // Search Modal
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: _buildSearchModal(),
+            ),
             // Create Post Modal
             Positioned(
               bottom: 0,
@@ -859,7 +1204,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ],
         ),
       ),
-      floatingActionButton: _selectedIndex == 0 && _showFab
+      floatingActionButton: _selectedIndex == 0 && _showFab && !_showSearch && !_showCreatePost
           ? ScaleTransition(
               scale: _fabScaleAnimation,
               child: FloatingActionButton(
