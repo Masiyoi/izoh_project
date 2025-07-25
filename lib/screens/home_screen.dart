@@ -38,8 +38,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<Map<String, dynamic>> _posts = [];
   List<Map<String, dynamic>> _searchResults = [];
   RealtimeChannel? _realtimeChannel;
+  RealtimeChannel? _messagesRealtimeChannel; // Add this for message notifications
   final ScrollController _scrollController = ScrollController();
   bool _showFab = true;
+  int _totalUnreadMessages = 0; // Add this to track unread messages
 
   static const List<Widget> _pages = [
     SizedBox.shrink(),
@@ -94,6 +96,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _fabAnimationController.forward();
     _loadPosts();
     _setupRealtime();
+    _setupMessagesRealtime(); // Add this line
+    _loadUnreadMessagesCount(); // Add this line
     _setupScrollListener();
     _setupSearchListener();
   }
@@ -120,6 +124,98 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
   }
 
+  // Add this method to load unread messages count
+  Future<void> _loadUnreadMessagesCount() async {
+    final currentUserId = supabase.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    try {
+      // Get all conversations where current user is a participant
+      final conversations = await supabase
+          .from('conversations')
+          .select('''
+            id,
+            conversation_participants!inner(user_id)
+          ''')
+          .eq('conversation_participants.user_id', currentUserId);
+
+      int totalUnread = 0;
+
+      for (var conv in conversations) {
+        // Get unread count for each conversation
+        final unreadCount = await _getUnreadCount(conv['id'], currentUserId);
+        totalUnread += unreadCount;
+      }
+
+      if (mounted) {
+        setState(() {
+          _totalUnreadMessages = totalUnread;
+        });
+      }
+    } catch (e) {
+      // Handle error silently
+    }
+  }
+
+  // Add this helper method
+  Future<int> _getUnreadCount(String conversationId, String currentUserId) async {
+    try {
+      // Get all messages in this conversation that are not sent by current user
+      final messages = await supabase
+          .from('messages')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .neq('sender_id', currentUserId);
+
+      if (messages.isEmpty) return 0;
+
+      // Get read status for these messages
+      final readMessages = await supabase
+          .from('message_read_status')
+          .select('message_id')
+          .eq('user_id', currentUserId)
+          .inFilter('message_id', messages.map((m) => m['id']).toList());
+
+      // Calculate unread count
+      return messages.length - readMessages.length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // Add this method to setup realtime for messages
+  Future<void> _setupMessagesRealtime() async {
+    final currentUserId = supabase.auth.currentUser?.id;
+    if (currentUserId == null) return;
+
+    _messagesRealtimeChannel = supabase.channel('home-messages-$currentUserId')
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'messages',
+        callback: (payload) {
+          _loadUnreadMessagesCount();
+        },
+      )
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'message_read_status',
+        callback: (payload) {
+          _loadUnreadMessagesCount();
+        },
+      )
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'conversations',
+        callback: (payload) {
+          _loadUnreadMessagesCount();
+        },
+      )
+      ..subscribe();
+  }
+
   @override
   void dispose() {
     _captionController.dispose();
@@ -129,6 +225,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _searchAnimationController.dispose();
     _scrollController.dispose();
     _realtimeChannel?.unsubscribe();
+    _messagesRealtimeChannel?.unsubscribe(); // Add this line
     super.dispose();
   }
 
@@ -136,6 +233,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     setState(() {
       _selectedIndex = index;
     });
+    // If user taps on messages tab, refresh unread count
+    if (index == 1) {
+      _loadUnreadMessagesCount();
+    }
     // Add haptic feedback
     if (Theme.of(context).platform == TargetPlatform.iOS) {
       // Add haptic feedback for iOS
@@ -1119,6 +1220,57 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  // Add this method to build navigation item with badge
+  Widget _buildNavItem(int index) {
+    final isSelected = _selectedIndex == index;
+    final icon = isSelected ? _navIconsFilled[index] : _navIcons[index];
+    
+    // Show badge only for messages tab (index 1) and when there are unread messages
+    if (index == 1 && _totalUnreadMessages > 0) {
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Icon(
+            icon,
+            size: 26,
+            color: isSelected ? Colors.blue : Colors.grey.shade600,
+          ),
+          Positioned(
+            right: -6,
+            top: -6,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 18,
+                minHeight: 18,
+              ),
+              child: Center(
+                child: Text(
+                  _totalUnreadMessages > 99 ? '99+' : _totalUnreadMessages.toString(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    
+    return Icon(
+      icon,
+      size: 26,
+      color: isSelected ? Colors.blue : Colors.grey.shade600,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1232,10 +1384,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             return BottomNavigationBarItem(
               icon: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Icon(
-                  _selectedIndex == index ? _navIconsFilled[index] : _navIcons[index],
-                  size: 26,
-                ),
+                child: _buildNavItem(index), // Use the new method with badge support
               ),
               label: '',
             );
